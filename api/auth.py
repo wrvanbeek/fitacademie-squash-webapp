@@ -68,26 +68,32 @@ def get_user_id_from_token(token: str) -> Optional[int]:
 
 
 # ── Fernet encryption for FitAcademie passwords ───────────────────
+# OPTIONAL: only used if ENCRYPTION_KEY is set. If not set, we store
+# session cookies instead of encrypted passwords.
 
-def get_fernet() -> Fernet:
+def get_fernet() -> Optional[Fernet]:
     key = os.getenv("ENCRYPTION_KEY")
     if not key:
-        raise RuntimeError(
-            "ENCRYPTION_KEY not set. Generate one with:\n"
-            "  python -c \"from cryptography.fernet import Fernet; "
-            "print(Fernet.generate_key().decode())\""
-        )
+        return None
     return Fernet(key.encode() if isinstance(key, str) else key)
 
 
-def encrypt_portal_password(password: str) -> str:
-    """Encrypt FitAcademie portal password using Fernet."""
-    return get_fernet().encrypt(password.encode()).decode()
+def encrypt_portal_password(password: str) -> Optional[str]:
+    """Encrypt FitAcademie portal password using Fernet.
+    Returns None if ENCRYPTION_KEY not set (caller should store cookies instead)."""
+    f = get_fernet()
+    if not f:
+        return None
+    return f.encrypt(password.encode()).decode()
 
 
-def decrypt_portal_password(encrypted: str) -> str:
-    """Decrypt FitAcademie portal password using Fernet."""
-    return get_fernet().decrypt(encrypted.encode()).decode()
+def decrypt_portal_password(encrypted: str) -> Optional[str]:
+    """Decrypt FitAcademie portal password using Fernet.
+    Returns None if ENCRYPTION_KEY not set."""
+    f = get_fernet()
+    if not f:
+        return None
+    return f.decrypt(encrypted.encode()).decode()
 
 
 # ── Playwright cookie session helpers ─────────────────────────────

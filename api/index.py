@@ -96,7 +96,8 @@ async def get_current_user(
 
 
 def get_client(user) -> FitAcademieClient:
-    """Get or create a FitAcademieClient for the user."""
+    """Get or create a FitAcademieClient for the user.
+    Uses cookies if available, otherwise decrypts password if ENCRYPTION_KEY is set."""
     uid = user["id"]
     if uid in _client_cache:
         client = _client_cache[uid]
@@ -105,14 +106,34 @@ def get_client(user) -> FitAcademieClient:
 
     # Create new client
     fa_email = user.get("fitacademie_email")
-    fa_pass = user.get("fitacademie_password_enc")
-    if not fa_email or not fa_pass:
+    if not fa_email:
+        raise HTTPException(400, "FitAcademie email not set")
+
+    # Try cookies first
+    cookies = user.get("session_cookies")
+    password = None
+    
+    if cookies:
+        # Will try to restore session with cookies
+        client = FitAcademieClient(fa_email, "")
+        client.set_cookies(json.loads(cookies))
+        if client.logged_in or True:  # We'll try to login if cookies fail
+            pass
+    else:
+        # Fallback: decrypt password if ENCRYPTION_KEY is set
+        fa_pass = user.get("fitacademie_password_enc")
+        if fa_pass:
+            password = decrypt_portal_password(fa_pass)
+    
+    if password is None and not cookies:
         raise HTTPException(400, "FitAcademie credentials not set")
 
-    password = decrypt_portal_password(fa_pass)
-    client = FitAcademieClient(fa_email, password)
+    client = FitAcademieClient(fa_email, password or "")
     if not client.login():
         raise HTTPException(502, "FitAcademie login mislukt")
+
+    # Save cookies for next time
+    user["session_cookies"] = json.dumps(client.get_cookies())
 
     _client_cache[uid] = client
     return client

@@ -5,5 +5,10 @@
       "memory": 512,
       "maxDuration": 30
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/health", "destination": "/api/index" },
+    { "source": "/login", "destination": "/" }
+  ]
 }
