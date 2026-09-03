@@ -67,6 +67,20 @@ def _next_id():
 app = FastAPI(title="FitAcademie Squash (Vercel)")
 security = HTTPBearer(auto_error=False)
 
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": str(exc),
+            "trace": traceback.format_exc()[-500:],
+            "path": str(request.url.path),
+        }
+    )
+
+
 STATIC_DIR = Path(__file__).parent.parent / "frontend"
 
 
@@ -263,7 +277,13 @@ async def grid(
         return {"slots": slots, "start_date": start, "days": days}
     except Exception as e:
         logger.exception("Grid fetch failed")
-        raise HTTPException(502, str(e))
+        import traceback
+        detail = traceback.format_exc()
+        return JSONResponse(status_code=502, content={
+            "error": "Grid fetch failed",
+            "detail": str(e),
+            "trace": detail[-500:]  # last 500 chars
+        })
 
 
 # ── Reservation route ──────────────────────────────────────────────
