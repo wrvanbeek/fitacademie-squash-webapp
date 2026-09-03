@@ -399,14 +399,13 @@ async def health():
 
 
 # ── SPA fallback ───────────────────────────────────────────────────
+# Note: Static index.html is served by Vercel from root level.
+# This route exists for API health check
+
 
 @app.get("/")
-@app.get("/login")
-async def serve_spa():
-    index_path = STATIC_DIR / "index.html"
-    if index_path.exists():
-        return HTMLResponse(content=index_path.read_text())
-    return HTMLResponse("<h1>Frontend not found</h1>")
+async def root():
+    return {"app": "FA Squash API", "status": "ok"}
 
 
 # ── Vercel ASGI handler ────────────────────────────────────────────
