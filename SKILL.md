@@ -210,33 +210,54 @@ cd /home/wesley/.hermes/skills/automation/fitacademie-squash-webapp/scripts
 - Login with any email+password (auto-creates account), enter FA portal credentials
 - Pick a day, tap a free cell, choose partner, confirm
 
-## Deploy to Fly.io (Free Tier)
+## Deploy naar Vercel (gratis, direct)
 
-[Fly.io](https://fly.io) free tier: 3 shared-CPU VMs, 3GB storage, 160GB outbound.
+Je GitHub repo is al geconnect met Vercel — elke push naar `main` triggert automatisch een deploy.
+
+### Wat er gebeurt na push:
+
+1. Vercel detecteert `api/index.py` → Python runtime
+2. Installeert `requirements.txt` (requests, beautifulsoup4, fastapi, etc.)
+3. Start de FastAPI app als ASGI serverless function
+4. Je app is live op `https://fitacademie-squash-webapp.vercel.app`
+
+### Environment variables (Vercel Dashboard → Settings → Environment Variables):
+
+| Variable | Waarde |
+|----------|--------|
+| `JWT_SECRET` | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `ENCRYPTION_KEY` | `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+
+### Bestandsstructuur (Vercel)
+
+```
+├── api/
+│   ├── index.py              # FastAPI serverless entrypoint
+│   ├── fitacademie_api.py    # Pure-Python FA client (geen Playwright!)
+│   └── auth.py               # bcrypt, JWT, Fernet
+├── frontend/
+│   └── index.html            # Mobile-first SPA
+├── requirements.txt          # Python deps
+└── vercel.json               # Routing config
+```
+
+### Waarom geen Docker/Playwright meer nodig?
+
+| Feature | Methode |
+|---------|---------|
+| Login | `POST /club_portal/` met email + password |
+| Grid data | `GET /club_portal/lessons/{day}` → HTML parsen met BeautifulSoup |
+| Partner valideren | `POST /reservation_activities/check_aditional_player/{slot_id}` |
+| Reserveren | `POST /cart/add/{slot_id}` of `/cart/add_zero_price/{slot_id}` |
+| Alles | Gewoon `requests.Session()` met cookies |
+
+### Local testen
 
 ```bash
-# 1. Install & login
-curl -L https://fly.io/install.sh | sh
-fly auth signup
-
-# 2. From skill directory:
 cd /home/wesley/.hermes/skills/automation/fitacademie-squash-webapp
-fly launch --name fitacademie-squash --region ams --no-deploy
-
-# 3. Set secrets (NEVER plaintext in Dockerfile for prod)
-fly secrets set JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-fly secrets set ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-
-# 4. Create volume for SQLite persistence
-fly volumes create fa_data --region ams --size 1
-
-# 5. Deploy!
-fly deploy
-fly open   # → https://fitacademie-squash.fly.dev
-
-# Update after changes:
-fly deploy
-fly logs
+pip install -r requirements.txt
+python -m uvicorn api.index:app --reload --port 8000
+# → http://localhost:8000
 ```
 
 ## Verified Routes
