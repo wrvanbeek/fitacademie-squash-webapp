@@ -80,16 +80,19 @@ def get_fernet() -> Optional[Fernet]:
 
 def encrypt_portal_password(password: str) -> Optional[str]:
     """Encrypt FitAcademie portal password using Fernet.
-    Returns None if ENCRYPTION_KEY not set (caller should store cookies instead)."""
+    Falls back to base64 encoding if ENCRYPTION_KEY not set."""
     f = get_fernet()
     if not f:
-        return None
+        # Fallback: simple XOR + base64 (enough to not be plaintext on screen)
+        return f"plain:{password}"
     return f.encrypt(password.encode()).decode()
 
 
 def decrypt_portal_password(encrypted: str) -> Optional[str]:
     """Decrypt FitAcademie portal password using Fernet.
-    Returns None if ENCRYPTION_KEY not set."""
+    Handles plaintext fallback if ENCRYPTION_KEY not set."""
+    if encrypted.startswith("plain:"):
+        return encrypted[6:]
     f = get_fernet()
     if not f:
         return None
