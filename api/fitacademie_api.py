@@ -19,6 +19,24 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://portaal.fitacademie.nl"
 
+# Realistic browser headers to avoid IP-based blocking
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "Dnt": "1",
+    "Connection": "keep-alive",
+}
+
 
 class FitAcademieClient:
     """Lightweight client for FitAcademie portal."""
@@ -27,10 +45,10 @@ class FitAcademieClient:
         self.email = email
         self.password = password
         self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "nl,en;q=0.5",
+        self.session.headers.update(BROWSER_HEADERS)
+        self.session.cookies.update({
+            "cookieconsent_status": "dismiss",
+            "cookiesession": "1",
         })
         self.logged_in = False
         self._csrf_token = None
@@ -39,8 +57,14 @@ class FitAcademieClient:
 
     def login(self) -> bool:
         """Log in to the FitAcademie portal. Returns True on success."""
-        # First visit to get cookies and any CSRF token
+        # First visit to get cookies and check if logged in
         r = self.session.get(f"{BASE_URL}/club_portal/lessons", timeout=30)
+        
+        # Check if portal responded
+        if r.status_code == 403:
+            logger.error("Portal returned 403 Forbidden — server IP blocked")
+            return False
+            
         r.raise_for_status()
 
         # Check if already logged in
