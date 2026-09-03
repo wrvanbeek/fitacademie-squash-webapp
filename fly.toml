@@ -1,0 +1,40 @@
+# fly.toml — Fly.io deployment config
+app = "fitacademie-squash"
+primary_region = "ams"
+kill_signal = "SIGINT"
+kill_timeout = "5s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[mounts]]
+  source = "fa_data"
+  destination = "/app/data"
+
+[checks]
+  status = "pass"
+  type = "http"
+  path = "/health"
+  method = "GET"
+  interval = "10s"
+  timeout = "5s"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  DATABASE_URL = "sqlite+aiosqlite:///./data/app.db"
+  SCHEDULER_TIMEZONE = "Europe/Amsterdam"
+  RELOAD = "false"
+  # JWT_SECRET and ENCRYPTION_KEY set via `fly secrets set`
