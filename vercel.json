@@ -1,14 +1,11 @@
 {
   "functions": {
     "api/index.py": {
-      "runtime": "python3.12",
       "memory": 512,
       "maxDuration": 30
     }
   },
-  "build": {
-    "env": {
-      "PIP_ROOT_USER_ACTION": "ignore"
-    }
-  }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index" }
+  ]
 }
