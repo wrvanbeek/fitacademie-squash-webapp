@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic
+python-jose
+bcrypt
+cryptography
+requests
+beautifulsoup4
+lxml
+python-multipart
+jinja2
+itsdangerous
+python-dotenv

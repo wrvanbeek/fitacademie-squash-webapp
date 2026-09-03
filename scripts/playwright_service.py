@@ -1,4 +1,4 @@
-"""Playwright automation service for FitAcademie portal."""
+"""Playwright automation service for FitAcademie portal — with network capture to discover API endpoints."""
 import asyncio
 import json
 import logging
@@ -14,6 +14,10 @@ BASE_URL = os.getenv("FITACADEMIE_BASE_URL", "https://portaal.fitacademie.nl/clu
 
 _playwright = None
 _browser = None
+
+# Store captured network calls
+captured_requests = []
+captured_responses = []
 
 
 async def _get_browser():
@@ -32,12 +36,55 @@ async def _random_delay(min_s=0.5, max_s=2.0):
     await asyncio.sleep(random.uniform(min_s, max_s))
 
 
-# ── Cookie management ──────────────────────────────────────────────
+# ── Network capture helpers ────────────────────────────────────────
 
+def _log_request(request):
+    """Capture request details."""
+    global captured_requests
+    if "api" in request.url.lower() or "lesson" in request.url.lower() or "reserve" in request.url.lower() or "login" in request.url.lower() or "cart" in request.url.lower() or "payment" in request.url.lower():
+        captured_requests.append({
+            "method": request.method,
+            "url": request.url,
+            "headers": dict(request.headers),
+            "post_data": request.post_data,
+            "resource_type": request.resource_type,
+        })
+        logger.info(f">>> REQUEST: {request.method} {request.url}")
+
+
+def _log_response(response):
+    """Capture response details."""
+    global captured_responses
+    url = response.url
+    if "api" in url.lower() or "lesson" in url.lower() or "reserve" in url.lower() or "login" in url.lower() or "cart" in url.lower() or "payment" in url.lower():
+        captured_responses.append({
+            "url": url,
+            "status": response.status,
+            "headers": dict(response.headers),
+            "ok": response.ok,
+        })
+        logger.info(f"<<< RESPONSE: {response.status} {url}")
+
+
+def get_captured_network():
+    """Return and clear captured network calls."""
+    global captured_requests, captured_responses
+    reqs = captured_requests.copy()
+    ress = captured_responses.copy()
+    captured_requests.clear()
+    captured_responses.clear()
+    return {"requests": reqs, "responses": ress}
+
+
+# ── Cookie management ──────────────────────────────────────────────
 
 async def restore_or_login(page, user):
     """Restore Playwright cookies or login fresh."""
     from auth import decrypt_portal_password
+
+    # Set up network listeners
+    page.on("request", _log_request)
+    page.on("response", _log_response)
 
     if user.session_cookies:
         try:
@@ -84,7 +131,6 @@ async def _save_cookies(page, user_id):
 
 # ── Grid data ──────────────────────────────────────────────────────
 
-
 async def fetch_grid_data(user, start_date: str, days: int = 7) -> dict:
     """Fetch squash availability grid for a date range."""
     browser = await _get_browser()
@@ -110,7 +156,9 @@ async def fetch_grid_data(user, start_date: str, days: int = 7) -> dict:
             all_slots.extend(slots)
             await _random_delay()
 
-        return {"slots": all_slots, "start_date": start_date, "days": days}
+        # Return captured network calls too
+        network = get_captured_network()
+        return {"slots": all_slots, "start_date": start_date, "days": days, "network": network}
     except Exception as e:
         logger.exception("Grid fetch failed")
         return {"error": str(e)}
@@ -175,7 +223,6 @@ async def _parse_slots(page) -> list:
 
 
 # ── Reservation ────────────────────────────────────────────────────
-
 
 async def make_reservation(user, court: int, date_str: str, time_str: str,
                            partner_email: str, partner_is_bepalend: bool = False) -> dict:
@@ -242,7 +289,6 @@ async def make_reservation(user, court: int, date_str: str, time_str: str,
         reserve_btn = target_li.locator('a:has-text("Inschrijven"), a[id*="reserve_"]')
         cls = await reserve_btn.get_attribute("class") or ""
         if "invisible" in cls:
-            # Try to make it visible via JS
             await page.evaluate("""() => {
                 const btn = document.querySelector('a[id*="reserve_"]');
                 if (btn) { btn.classList.remove('invisible', 'r_inactive'); }
@@ -264,6 +310,8 @@ async def make_reservation(user, court: int, date_str: str, time_str: str,
         if await page.locator("#cart_total_price").count() > 0:
             cart_total = await page.locator("#cart_total_price").inner_text()
 
+        # Return captured network calls too
+        network = get_captured_network()
         return {
             "success": True,
             "court": court,
@@ -273,6 +321,7 @@ async def make_reservation(user, court: int, date_str: str, time_str: str,
             "partner_validated": partner_valid,
             "cart_items": cart_count,
             "cart_total": cart_total,
+            "network": network,
         }
     except Exception as e:
         logger.exception("Reservation failed")
