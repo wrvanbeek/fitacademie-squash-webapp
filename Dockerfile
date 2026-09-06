@@ -9,8 +9,8 @@ COPY frontend/ ./frontend/
 
 # Install minimal Python deps (no Playwright!)
 RUN pip install --no-cache-dir \
-    fastapi uvicorn sqlalchemy aiosqlite pydantic pydantic-settings \
-    python-jose bcrypt cryptography pydantic-email-validation \
+    fastapi uvicorn sqlalchemy aiosqlite pydantic \
+    python-jose bcrypt cryptography \
     python-multipart email-validator python-dotenv \
     requests beautifulsoup4 \
     && rm -rf /root/.cache/pip
