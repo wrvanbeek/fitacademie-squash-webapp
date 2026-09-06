@@ -1,28 +1,18 @@
-# FitAcademie Squash Webapp — Dockerfile (single-stage for Playwright compat)
+# FitAcademie Squash Webapp — Lightweight Dockerfile (pure-Python, no Playwright)
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app
-
-# System deps (minimal for Playwright chromium)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg \
-    libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
-    libcups2 libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 \
-    libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
-    libcairo2 libasound2 libatspi2.0-0 libxshmfence1 \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copy project
 COPY scripts/ ./scripts/
 COPY frontend/ ./frontend/
 
-# Install Python deps + Playwright + Chromium
+# Install minimal Python deps (no Playwright!)
 RUN pip install --no-cache-dir \
     fastapi uvicorn sqlalchemy aiosqlite pydantic pydantic-settings \
-    python-jose bcrypt cryptography apscheduler python-multipart \
-    httpx email-validator jinja2 python-dotenv playwright \
-    && playwright install chromium 2>&1 | tail -5 \
-    && playwright install-deps chromium 2>&1 | tail -5 || true \
+    python-jose bcrypt cryptography pydantic-email-validation \
+    python-multipart email-validator python-dotenv \
+    requests beautifulsoup4 \
     && rm -rf /root/.cache/pip
 
 # Environment
@@ -35,7 +25,7 @@ ENV FITACADEMIE_BASE_URL=https://portaal.fitacademie.nl/club_portal/lessons
 ENV SCHEDULER_TIMEZONE=Europe/Amsterdam
 ENV RELOAD=false
 
-# Fly.io volume mount for SQLite persistence
+# Volume for SQLite persistence
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 

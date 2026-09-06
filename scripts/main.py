@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, date
 from pathlib import Path
@@ -30,7 +31,7 @@ from auth import (
     encrypt_portal_password, decrypt_portal_password,
     get_user_id_from_token,
 )
-from playwright_service import fetch_grid_data, make_reservation, close_browser
+from fitacademie_api import FitAcademieClient
 
 # ── Logging ────────────────────────────────────────────────────────
 
@@ -47,8 +48,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
     yield
-    await close_browser()
-    logger.info("Browser closed")
+    logger.info("App shutting down")
 
 
 app = FastAPI(title="FitAcademie Squash Webapp", lifespan=lifespan)
@@ -86,6 +86,50 @@ async def get_current_user(
         if not user:
             raise HTTPException(status_code=401, detail="Gebruiker niet gevonden")
         return user
+
+
+# ── FA client cache ─────────────────────────────────────────────────
+
+_client_cache: dict[int, FitAcademieClient] = {}
+
+
+def get_fa_client(user: User) -> FitAcademieClient:
+    """Get or create a FitAcademieClient. Uses cookies if available."""
+    uid = user.id
+    if uid in _client_cache:
+        client = _client_cache[uid]
+        if client.logged_in:
+            return client
+
+    if not user.fitacademie_email:
+        raise HTTPException(400, "FitAcademie email not set")
+
+    fa_pass = user.fitacademie_password_enc
+    password = decrypt_portal_password(fa_pass) if fa_pass else None
+
+    if not password and not user.session_cookies:
+        raise HTTPException(400, "FitAcademie credentials not set — login via app met portal credentials")
+
+    client = FitAcademieClient(user.fitacademie_email, password or "")
+
+    if user.session_cookies:
+        try:
+            client.set_cookies(json.loads(user.session_cookies))
+        except Exception:
+            pass
+
+    if not client.login():  # cookies failed or expired -> full login
+        if not password:
+            raise HTTPException(502, "FitAcademie login mislukt — cookies expired en geen wachtwoord")
+        client = FitAcademieClient(user.fitacademie_email, password)
+        if not client.login():
+            raise HTTPException(502, "FitAcademie login mislukt — check portal credentials")
+
+    # Save session cookies for next time
+    user.session_cookies = json.dumps(client.get_cookies())
+
+    _client_cache[uid] = client
+    return client
 
 
 # ── Pydantic schemas ───────────────────────────────────────────────
@@ -219,17 +263,23 @@ async def grid(
     days: int = Query(default=7, ge=1, le=14),
     user: User = Depends(get_current_user),
 ):
-    """Fetch squash availability grid."""
+    """Fetch squash availability grid using pure-Python client."""
     if not user.fitacademie_password_enc:
         raise HTTPException(400, "FitAcademie credentials not set — login first with portal credentials")
 
     if not start:
         start = date.today().isoformat()
 
-    data = await fetch_grid_data(user, start, days)
-    if "error" in data:
-        raise HTTPException(502, data["error"])
-    return data
+    loop = asyncio.get_event_loop()
+    try:
+        client = get_fa_client(user)
+        slots = await loop.run_in_executor(None, client.get_grid, start, days)
+        return {"slots": slots, "start_date": start, "days": days}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Grid fetch failed")
+        raise HTTPException(502, str(e))
 
 
 # ── Reservation route ──────────────────────────────────────────────
@@ -240,23 +290,55 @@ async def reserve(
     req: ReservationRequest,
     user: User = Depends(get_current_user),
 ):
-    """Make a squash reservation using a saved partner."""
+    """Make a squash reservation using the pure-Python client."""
     async with AsyncSessionLocal() as db:
         partner = await db.get(Partner, req.partner_id)
         if not partner or partner.user_id != user.id:
             raise HTTPException(404, "Partner niet gevonden")
 
-    result = await make_reservation(
-        user,
-        court=req.court,
-        date_str=req.date,
-        time_str=req.time,
-        partner_email=partner.email,
-        partner_is_bepalend=partner.is_bepalend_lid,
-    )
+    loop = asyncio.get_event_loop()
 
-    if not result.get("success"):
-        return JSONResponse(status_code=400, content=result)
+    def _do_reserve():
+        client = get_fa_client(user)
+        # First find the slot_id for this court/date/time
+        slots = client.get_grid(req.date, 1)
+        target = None
+        for s in slots:
+            if s["court"] == req.court and s["start"] == req.time:
+                target = s
+                break
+        if not target:
+            raise ValueError(f"Slot niet gevonden: baan {req.court}, {req.date} {req.time}")
+        if not target.get("available", True):
+            raise ValueError(f"Slot is niet beschikbaar ({target.get('booked', 0)}/{target.get('capacity', 2)})")
+
+        # Check partner price
+        check = client.check_partner(target["slot_id"], partner.email)
+
+        # Reserve
+        result = client.reserve(target["slot_id"], partner.email)
+        if not result.get("success"):
+            raise ValueError(result.get("error", "Reserveren mislukt"))
+
+        return {
+            "success": True,
+            "court": req.court,
+            "date": req.date,
+            "time": req.time,
+            "partner": partner.email,
+            "partner_price": check["price"],
+            "partner_valid": check["valid"],
+            "cart_items": result.get("cart_items"),
+            "cart_total": result.get("cart_total"),
+        }
+
+    try:
+        result = await loop.run_in_executor(None, _do_reserve)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Reservation failed")
+        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
 
     # Save to reservation history
     async with AsyncSessionLocal() as db:
