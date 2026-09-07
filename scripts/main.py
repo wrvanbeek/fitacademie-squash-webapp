@@ -142,6 +142,18 @@ class LoginRequest(BaseModel):
     fitacademie_password: str = ""
     remember: bool = False
 
+    @field_validator("email", "fitacademie_email")
+    @classmethod
+    def normalize_gmail(cls, v: str) -> str:
+        """Gmail ignores dots — normalize so wrvanbeek == w.r.vanbeek"""
+        if not v:
+            return v
+        local, *rest = v.split("@")
+        if len(rest) == 1 and rest[0].lower() in ("gmail.com", "googlemail.com"):
+            local = local.replace(".", "")
+            return f"{local}@{rest[0].lower()}"
+        return v
+
 
 class PartnerCreate(BaseModel):
     name: str
@@ -278,9 +290,9 @@ async def me(user: User = Depends(get_current_user)):
 
 
 @app.get("/api/grid")
-async def grid(
-    start: str = Query(default=None, description="YYYY-MM-DD"),
-    days: int = Query(default=7, ge=1, le=14),
+async def get_grid(
+    start: str = Query(default="", description="Start date YYYY-MM-DD"),
+    days: int = Query(default=14, ge=1, le=28),
     user: User = Depends(get_current_user),
 ):
     """Fetch squash availability grid using pure-Python client."""
@@ -489,6 +501,23 @@ async def list_recurring(user: User = Depends(get_current_user)):
             }
             for b in bookings
         ]
+
+
+@app.get("/api/check_partner")
+async def check_partner(
+    slot_id: int,
+    partner_email: str,
+    user: User = Depends(get_current_user),
+):
+    """Check if a partner is valid for a specific slot (price & membership)."""
+    loop = asyncio.get_event_loop()
+    try:
+        client = get_fa_client(user)
+        check = await loop.run_in_executor(None, client.check_partner, slot_id, partner_email)
+        return check
+    except Exception as e:
+        logger.exception("check_partner failed")
+        raise HTTPException(502, str(e))
 
 
 @app.post("/api/recurring")

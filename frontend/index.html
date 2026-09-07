@@ -262,7 +262,7 @@ header .header-right button:active { background: var(--surface2); }
   display: inline-block; padding: 2px 10px; border-radius: 12px;
   font-size: 11px; font-weight: 600;
 }
-.tag.bepalend { background: #2ecc7140; color: var(--green); border: 1px solid var(--green); }
+.tag.betalend { background: #2ecc7140; color: var(--green); border: 1px solid var(--green); }
 .tag.gast { background: #f39c1240; color: var(--yellow); border: 1px solid var(--yellow); }
 
 .partner-item {
@@ -328,6 +328,14 @@ header .header-right button:active { background: var(--surface2); }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 2;
+}
+.week-grid th.day-header.today {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 .week-grid th.court-sub-header {
   font-size: 10px;
@@ -336,6 +344,10 @@ header .header-right button:active { background: var(--surface2); }
   color: var(--text-dim);
   font-weight: 400;
   border-bottom: 2px solid var(--border);
+  position: sticky;
+  top: 33px;
+  background: var(--bg);
+  z-index: 2;
 }
 .week-grid td.time-col {
   text-align: right;
@@ -415,7 +427,6 @@ header .header-right button:active { background: var(--surface2); }
     </div>
   </header>
 
-  <div class="day-nav" id="day-nav"></div>
   <div class="legend">
     <span><span class="dot" style="background:var(--green)"></span> vrij</span>
     <span><span class="dot" style="background:var(--yellow)"></span> 1/2</span>
@@ -446,6 +457,7 @@ header .header-right button:active { background: var(--surface2); }
     <div class="handle"></div>
     <h2 id="reserve-title">Reserveer</h2>
     <p id="reserve-details"></p>
+    <p id="reserve-price" style="font-size:14px;color:var(--green)"></p>
     <label>Medespeler</label>
     <select id="reserve-partner"></select>
     <div class="btn-row">
@@ -468,7 +480,7 @@ header .header-right button:active { background: var(--surface2); }
     <label>E-mail</label>
     <input type="email" id="partner-email" placeholder="stijn@voorbeeld.nl">
     <div class="checkbox-row">
-      <input type="checkbox" id="partner-bepalend"><label for="partner-bepalend"><b>Bepalend lid</b> — geen extra kosten, direct voltooid</label>
+      <input type="checkbox" id="partner-betalend"><label for="partner-betalend"><b>Betalend lid</b> — geen extra kosten, direct voltooid</label>
     </div>
     <button class="btn btn-primary" onclick="addPartner()">➕ Toevoegen</button>
     <div class="btn-row" style="margin-top:16px">
@@ -594,41 +606,25 @@ const DAYS = ['Ma','Di','Wo','Do','Vr','Za','Zo'];
 const HOURS = Array.from({length:16}, (_,i)=> String(i+7).padStart(2,'0')+':00');
 const COURTS = ['Baan 1','Baan 2'];
 
-function getWeekStart(offset) {
-  const now = new Date();
-  const day = now.getDay();
-  const monOff = day === 0 ? -6 : 1-day;
-  const s = new Date(now); s.setDate(now.getDate() + monOff + offset*7);
-  return s;
-}
-
 function id(date,court,time) { return `${date}_B${court}_${time}`; }
-
-function getTodayIdx() {
-  const now = new Date(); const d = now.getDay();
-  return d === 0 ? 6 : d-1;
-}
 
 function fmtDate(d) {
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
+
+// Initialize dayDates on startup (14 days from today)
+const today = new Date();
+today.setHours(12,0,0,0);
+state.dayDates = [];
+for (let i=0;i<14;i++) {
+  const d = new Date(today);
+  d.setDate(today.getDate() + i);
+  state.dayDates.push(fmtDate(d));
+}
+
 async function loadGrid() {
-  // Generate day dates for the week
-  const start = getWeekStart(state.weekOffset);
-  state.dayDates = [];
-  for (let i=0;i<7;i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    state.dayDates.push(fmtDate(d));
-  }
-
-  // Default to today if in range
-  const todayIdx = getTodayIdx();
-  // If week offset is 0, todayIdx works; otherwise default to day 0
-  state.selectedDayIdx = state.weekOffset === 0 ? todayIdx : 0;
-
   try {
-    const res = await fetch('/api/grid?start='+state.dayDates[0]+'&days=7', {
+    const res = await fetch('/api/grid?start='+state.dayDates[0]+'&days=14', {
       headers: {'Authorization':'Bearer '+state.token}
     });
     if (res.status === 401) { handleLogout(); return; }
@@ -639,70 +635,56 @@ async function loadGrid() {
     for (const s of state.slots) {
       state.gridData[id(s.date,s.court,s.start)] = s;
     }
-    renderDayNav();
-    renderWeekView();  // NEW: show full week
+    renderWeekView();  // show full 2-week grid
   } catch(e) {
     document.getElementById('grid-wrap').innerHTML='<div class="loading" style="color:var(--red)">Netwerkfout</div>';
   }
 }
 
-function renderDayNav() {
-  const nav = document.getElementById('day-nav');
-  nav.innerHTML = `<button class="nav-arrow" onclick="navigateWeek(-1)">←</button>`;
-  state.dayDates.forEach((d,i) => {
-    const dt = new Date(d+'T12:00:00');
-    const dayName = DAYS[dt.getDay() === 0 ? 6 : dt.getDay()-1];
-    const dateNum = dt.getDate();
-    const active = i === state.selectedDayIdx ? 'active' : '';
-    nav.innerHTML += `<button class="${active}" onclick="selectDay(${i})">${dayName} ${dateNum}</button>`;
-  });
-  nav.innerHTML += `<button class="nav-arrow" onclick="navigateWeek(1)">→</button>`;
-}
+// function renderDayNav() removed - no longer needed with full 2-week grid
 
-function selectDay(idx) {
-  state.selectedDayIdx = idx;
-  renderDayNav();
-  renderDay(idx);
-}
+// function selectDay(idx) removed - no longer needed with full 2-week grid
 
-function navigateWeek(dir) {
-  state.weekOffset += dir;
-  loadGrid();
-}
+// function navigateWeek(dir) removed - no longer needed with full 2-week grid
 
 function renderWeekView() {
   const wrap = document.getElementById('grid-wrap');
   
-  // Get all unique hours from slots
-  const hours = Array.from(new Set(state.slots.map(s => s.start))).sort();
-  if (hours.length === 0) {
-    // Fallback to default hours
-    for (let h=7; h<=22; h++) hours.push(h+':00');
+  // Build consistent 30-min time grid: 06:00 - 23:00
+  const hours = [];
+  for (let h = 6; h <= 22; h++) {
+    for (let m of [0, 30]) {
+      const start = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      const end = m === 0 ? `${String(h).padStart(2,'0')}:30` : `${String(h+1).padStart(2,'0')}:00`;
+      hours.push({start, end, display: `${start} - ${end}`});
+    }
   }
 
-  let html = `<div class="week-grid-container"><table class="week-grid"><thead><tr><th class="time-col">Tijd</th>`;
+  const numDays = state.dayDates.length;
   
-  // Day headers (7 days × 2 courts = 14 columns, or we can group by day)
-  for (let d=0; d<7; d++) {
+  let html = `<div class="week-grid-container"><table class="week-grid"><thead><tr><th class="time-col" rowspan="2">Tijd</th>`;
+  
+  for (let d=0; d<numDays; d++) {
     const dt = new Date(state.dayDates[d]+'T12:00:00');
     const dayName = DAYS[dt.getDay() === 0 ? 6 : dt.getDay()-1];
     const dateNum = dt.getDate();
     const monthNum = dt.getMonth()+1;
-    html += `<th colspan="2" class="day-header">${dayName} ${dateNum}/${monthNum}</th>`;
+    const isToday = dt.toDateString() === new Date().toDateString();
+    html += `<th colspan="2" class="day-header${isToday?' today':''}">${dayName} ${dateNum}/${monthNum}</th>`;
   }
   html += `</tr><tr><th class="time-col"></th>`;
-  for (let d=0; d<7; d++) {
+  for (let d=0; d<numDays; d++) {
     html += `<th class="court-sub-header">Baan 1</th><th class="court-sub-header">Baan 2</th>`;
   }
   html += `</tr></thead><tbody>`;
 
-  for (const hour of hours) {
-    html += `<tr><td class="time-col">${hour}</td>`;
-    for (let d=0; d<7; d++) {
+  for (const h of hours) {
+    html += `<tr><td class="time-col">${h.display}</td>`;
+    for (let d=0; d<numDays; d++) {
       const dateStr = state.dayDates[d];
       for (let c=0; c<2; c++) {
         const court = c+1;
-        const key = id(dateStr, court, hour);
+        const key = id(dateStr, court, h.start);
         const slot = state.gridData[key];
         let cls = 'closed', label = '—', sub = '';
         if (slot) {
@@ -711,42 +693,12 @@ function renderWeekView() {
           else { cls='one'; label='1/2'; }
           sub = `€${slot.price}`;
         }
-        html += `<td class="court-col"><div class="court-cell ${cls}" data-key="${key}" data-date="${dateStr}" data-court="${court}" data-time="${hour}" onclick="cellClick(this)"><span>${label}</span>${sub ? '<span class="sub">'+sub+'</span>' : ''}</div></td>`;
+        html += `<td class="court-col"><div class="court-cell ${cls}" data-key="${key}" data-date="${dateStr}" data-court="${court}" data-time="${h.start}" onclick="cellClick(this)"><span>${label}</span></div></td>`;
       }
     }
     html += `</tr>`;
   }
   html += `</tbody></table></div>`;
-  wrap.innerHTML = html;
-}
-
-function renderDay(idx) {
-  const dateStr = state.dayDates[idx];
-  const wrap = document.getElementById('grid-wrap');
-  if (!dateStr) { wrap.innerHTML = ''; return; }
-
-  let html = `<table class="grid-day-table"><thead><tr><th></th>`;
-  for (let c=0;c<2;c++) html += `<th>${COURTS[c]}</th>`;
-  html += `</tr></thead><tbody>`;
-
-  for (const hour of HOURS) {
-    html += `<tr><td class="time-col">${hour}</td>`;
-    for (let c=0;c<2;c++) {
-      const court = c+1;
-      const key = id(dateStr, court, hour);
-      const slot = state.gridData[key];
-      let cls = 'closed', label = '—', sub = '';
-      if (slot) {
-        if (slot.booked >= slot.capacity) { cls='full'; label='vol'; }
-        else if (slot.booked === 0) { cls='free'; label='vrij'; }
-        else { cls='one'; label='1/2'; }
-        sub = `€${slot.price}`;
-      }
-      html += `<td class="court-col"><div class="court-cell ${cls}" data-key="${key}" data-date="${dateStr}" data-court="${court}" data-time="${hour}" onclick="cellClick(this)"><span>${label}</span>${sub ? '<span class="sub">'+sub+'</span>' : ''}</div></td>`;
-    }
-    html += `</tr>`;
-  }
-  html += `</tbody></table>`;
   wrap.innerHTML = html;
 }
 
@@ -762,6 +714,22 @@ function cellClick(el) {
   document.getElementById('reserve-title').textContent = `${COURTS[state.selectedCell.court-1]}`;
   document.getElementById('reserve-details').textContent = `${dayName} ${dt.getDate()} sep · ${state.selectedCell.time}`;
   document.getElementById('reserve-result').textContent = '';
+  
+  // Check the price for this slot (user's own membership)
+  const slot = state.gridData[el.dataset.key];
+  if (slot) {
+    fetch('/api/check_partner?slot_id='+slot.slot_id+'&partner_email='+encodeURIComponent(state.user?.email||'') , {
+      headers: {'Authorization':'Bearer '+state.token}
+    }).then(r => r.json()).then(d => {
+      const priceInfo = document.getElementById('reserve-price');
+      if (d.valid && d.price === 0) {
+        priceInfo.innerHTML = '<span class="tag betalend">⭐ Betalend lid — gratis</span>';
+      } else {
+        priceInfo.innerHTML = `Kosten: €${d.price}`;
+      }
+    }).catch(() => {});
+  }
+  
   const sel = document.getElementById('reserve-partner');
   sel.innerHTML = '<option value="">Kies medespeler...</option>';
   state.partners.forEach(p => {
@@ -812,7 +780,7 @@ function renderPartners() {
   el.innerHTML = state.partners.map(p => `
     <div class="partner-item">
       <div class="info"><div class="name">${p.name}</div><div class="email">${p.email}</div></div>
-      <div><span class="tag ${p.is_bepalend_lid?'bepalend':'gast'}">${p.is_bepalend_lid?'⭐ Bepalend':'Gast'}</span>
+      <div><span class="tag ${p.is_bepalend_lid?'betalend':'gast'}">${p.is_bepalend_lid?'⭐ Betalend':'Gast'}</span>
         <button onclick="deletePartner(${p.id})" style="background:none;border:none;color:var(--red);cursor:pointer;padding:4px 8px">🗑️</button>
       </div>
     </div>`).join('');
@@ -821,12 +789,12 @@ function renderPartners() {
 async function addPartner() {
   const n = document.getElementById('partner-name').value.trim();
   const e = document.getElementById('partner-email').value.trim();
-  const b = document.getElementById('partner-bepalend').checked;
+  const b = document.getElementById('partner-betalend').checked;
   if (!n||!e) return;
   await fetch('/api/partners', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.token},
     body: JSON.stringify({name:n,email:e,is_bepalend_lid:b,notes:''})});
   document.getElementById('partner-name').value=''; document.getElementById('partner-email').value='';
-  document.getElementById('partner-bepalend').checked=false;
+  document.getElementById('partner-betalend').checked=false;
   await loadPartners(); renderPartners();
 }
 
@@ -904,7 +872,7 @@ async function showReservationsModal() {
     el.innerHTML=mine.map(s=>{
       const dt=new Date(s.date+'T12:00:00');
       const dn=DAYS[dt.getDay()===0?6:dt.getDay()-1];
-      return `<div class="partner-item"><div class="info"><div class="name">Baan ${s.court} · ${dn} ${dt.getDate()} sep</div><div class="email">${s.start}-${s.end}</div></div><span class="tag ${s.available?'':'bepalend'}">${s.available?'Bezet':'Vol'}</span></div>`;
+      return `<div class="partner-item"><div class="info"><div class="name">Baan ${s.court} · ${dn} ${dt.getDate()} sep</div><div class="email">${s.start}-${s.end}</div></div><span class="tag ${s.available?'':'betalend'}">${s.available?'Bezet':'Vol'}</span></div>`;
     }).join('');
   }catch{e.l.innerHTML='<p style="color:var(--red)">Fout bij laden</p>';}
 }
