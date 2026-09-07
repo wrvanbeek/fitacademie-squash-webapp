@@ -149,12 +149,32 @@ class PartnerCreate(BaseModel):
     is_bepalend_lid: bool = False
     notes: str = ""
 
+    @field_validator("email")
+    @classmethod
+    def no_test_domains(cls, v: str) -> str:
+        test_domains = {"test.com", "example.com", "dummy.com", "localhost", "test.nl", "example.nl"}
+        domain = v.split("@")[-1].lower()
+        if domain in test_domains:
+            raise ValueError("Geen test-domeinen toegestaan voor partners")
+        return v
+
 
 class PartnerUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     is_bepalend_lid: Optional[bool] = None
     notes: Optional[str] = None
+
+    @field_validator("email")
+    @classmethod
+    def no_test_domains(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        test_domains = {"test.com", "example.com", "dummy.com", "localhost", "test.nl", "example.nl"}
+        domain = v.split("@")[-1].lower()
+        if domain in test_domains:
+            raise ValueError("Geen test-domeinen toegestaan voor partners")
+        return v
 
 
 class RecurringCreate(BaseModel):
@@ -315,7 +335,22 @@ async def reserve(
         # Check partner price
         check = client.check_partner(target["slot_id"], partner.email)
 
-        # Reserve
+        # AUDIT LOG
+        logger.info(
+            "RESERVE_ATTEMPT",
+            extra={
+                "user_id": user.id,
+                "slot_id": target["slot_id"],
+                "partner_email": partner.email,
+                "partner_is_bepalend": partner.is_bepalend_lid,
+                "endpoint": "add_zero_price" if check["price"] == 0 else "add",
+                "court": req.court,
+                "date": req.date,
+                "time": req.time,
+            }
+        )
+
+        # Reserve (will raise ValueError if partner invalid)
         result = client.reserve(target["slot_id"], partner.email)
         if not result.get("success"):
             raise ValueError(result.get("error", "Reserveren mislukt"))
@@ -334,6 +369,9 @@ async def reserve(
 
     try:
         result = await loop.run_in_executor(None, _do_reserve)
+    except ValueError as e:
+        logger.warning(f"RESERVE_FAILED: user={user.id} error={e}")
+        return JSONResponse(status_code=400, content={"success": False, "error": str(e)})
     except HTTPException:
         raise
     except Exception as e:

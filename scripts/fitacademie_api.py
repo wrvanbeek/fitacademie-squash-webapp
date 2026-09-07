@@ -241,16 +241,25 @@ class FitAcademieClient:
 
         Args:
             slot_id: The slot ID (from get_slots_for_day)
-            partner_email: Partner's email
+            partner_email: Partner's email (must be validated first via check_partner)
             team_size: 2 (default) or 4
             with_page_reload: True to reload page after (default)
 
         Returns dict with {"success": bool, "cart_url": str, ...}
+
+        Raises:
+            ValueError: If partner_email is not validated (check_partner returns invalid)
         """
         self.ensure_login()
 
-        # First check the partner price
+        # MANDATORY: Validate partner first - no exceptions
         check = self.check_partner(slot_id, partner_email)
+        if not check["valid"]:
+            raise ValueError(
+                f"Partner validation failed: {check['message']}. "
+                f"Use check_partner() first to verify."
+            )
+
         full_price = check["price"]
 
         # Choose endpoint based on price
@@ -266,8 +275,6 @@ class FitAcademieClient:
             "players": partner_email,
         }
 
-        # Also include the authorized user (our email)
-        # The JS does this automatically via the form, we need to include it
         r = self.session.post(
             f"{BASE_URL}{endpoint}",
             data=form_params,
@@ -281,7 +288,6 @@ class FitAcademieClient:
         if r.status_code == 200:
             logger.info(f"Reservation added to cart: slot {slot_id}, partner {partner_email}")
 
-            # Get cart info from the response (if HTML with_page_reload)
             cart_items = None
             cart_total = None
             if with_page_reload:
