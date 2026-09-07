@@ -308,6 +308,76 @@ header .header-right button:active { background: var(--surface2); }
 .checkbox-row input { width: auto; }
 .dual-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
+/* ── Week grid (all 7 days, 2 courts each) ───────────────────── */
+.week-grid-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.week-grid {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 900px;
+  font-size: 12px;
+}
+.week-grid th.day-header {
+  font-size: 11px;
+  text-align: center;
+  padding: 6px 2px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.week-grid th.court-sub-header {
+  font-size: 10px;
+  text-align: center;
+  padding: 2px 1px;
+  color: var(--text-dim);
+  font-weight: 400;
+  border-bottom: 2px solid var(--border);
+}
+.week-grid td.time-col {
+  text-align: right;
+  padding-right: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  vertical-align: middle;
+  width: 36px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  left: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+.week-grid td.court-col {
+  padding: 1px;
+  border-bottom: 1px solid var(--border);
+}
+.week-grid .court-cell {
+  width: 48px;
+  height: 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: 0.1s;
+  line-height: 1.2;
+}
+.week-grid .court-cell .sub {
+  font-size: 9px;
+  opacity: 0.7;
+}
+@media (min-width: 701px) {
+  .week-grid .court-cell { width: 56px; height: 42px; }
+  .week-grid { min-width: 1100px; }
+}
+
 /* ── Desktop overrides ─────────────────────────────────────────── */
 @media (min-width: 701px) {
   .day-nav { justify-content: center; }
@@ -324,23 +394,15 @@ header .header-right button:active { background: var(--surface2); }
   <div class="login-card">
     <h1>🏸 Squash</h1>
     <div class="sub">FitAcademie Bokkeduinen</div>
-    <label>Jouw e-mail</label>
-    <input type="email" id="login-email" placeholder="jij@email.nl" autocomplete="email">
-    <label>Wachtwoord</label>
-    <input type="password" id="login-password" placeholder="wachtwoord" autocomplete="current-password">
+    <label>FitAcademie e-mail</label>
+    <input type="email" id="login-fa-email" placeholder="wrvanbeek@gmail.com" autocomplete="email">
+    <label>FitAcademie wachtwoord</label>
+    <input type="password" id="login-fa-password" placeholder="wachtwoord" autocomplete="current-password">
     <div class="checkbox-row">
       <input type="checkbox" id="login-remember"><label for="login-remember">Onthoud mij</label>
     </div>
     <button class="btn" id="login-btn" onclick="handleLogin()">Inloggen</button>
     <div class="error" id="login-error"></div>
-    <div class="fitacademie-section">
-      <h3>🔑 FitAcademie Portal</h3>
-      <div class="subhint">Wordt versleuteld opgeslagen</div>
-      <label>Portal e-mail</label>
-      <input type="email" id="login-fa-email" placeholder="wrvanbeek@gmail.com" autocomplete="off">
-      <label>Portal wachtwoord</label>
-      <input type="password" id="login-fa-password" placeholder="FitAcademie wachtwoord" autocomplete="off">
-    </div>
   </div>
 </div>
 
@@ -476,19 +538,18 @@ const state = {
 
 // ═══════════════ AUTH ════════════════════════════════════════════
 async function handleLogin() {
-  const email = document.getElementById('login-email').value.trim();
-  const pwd = document.getElementById('login-password').value;
   const faEmail = document.getElementById('login-fa-email').value.trim();
   const faPwd = document.getElementById('login-fa-password').value;
   const rem = document.getElementById('login-remember').checked;
   const err = document.getElementById('login-error');
   const btn = document.getElementById('login-btn');
-  if (!email || !pwd) { err.textContent = 'Vul e-mail en wachtwoord in'; return; }
+  if (!faEmail || !faPwd) { err.textContent = 'Vul e-mail en wachtwoord in'; return; }
   btn.disabled = true; btn.textContent = 'Bezig...';
   try {
+    // Single set of credentials: FA email/password doubles as the app account
     const r = await fetch('/api/auth/login', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({email,password,fitacademie_email:faEmail,fitacademie_password:faPwd,remember:rem}),
+      body: JSON.stringify({email:faEmail,password:faPwd,fitacademie_email:faEmail,fitacademie_password:faPwd,remember:rem}),
     });
     const d = await r.json();
     if (!d.success) { err.textContent = d.detail || 'Login mislukt'; btn.disabled=false; btn.textContent='Inloggen'; return; }
@@ -541,10 +602,6 @@ function getWeekStart(offset) {
   return s;
 }
 
-function fmtDate(d) {
-  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-}
-
 function id(date,court,time) { return `${date}_B${court}_${time}`; }
 
 function getTodayIdx() {
@@ -552,10 +609,18 @@ function getTodayIdx() {
   return d === 0 ? 6 : d-1;
 }
 
+function fmtDate(d) {
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
 async function loadGrid() {
+  // Generate day dates for the week
   const start = getWeekStart(state.weekOffset);
   state.dayDates = [];
-  for (let i=0;i<7;i++) { const d=new Date(start); d.setDate(start.getDate()+i); state.dayDates.push(fmtDate(d)); }
+  for (let i=0;i<7;i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    state.dayDates.push(fmtDate(d));
+  }
 
   // Default to today if in range
   const todayIdx = getTodayIdx();
@@ -575,7 +640,7 @@ async function loadGrid() {
       state.gridData[id(s.date,s.court,s.start)] = s;
     }
     renderDayNav();
-    renderDay(state.selectedDayIdx);
+    renderWeekView();  // NEW: show full week
   } catch(e) {
     document.getElementById('grid-wrap').innerHTML='<div class="loading" style="color:var(--red)">Netwerkfout</div>';
   }
@@ -603,6 +668,56 @@ function selectDay(idx) {
 function navigateWeek(dir) {
   state.weekOffset += dir;
   loadGrid();
+}
+
+function renderWeekView() {
+  const wrap = document.getElementById('grid-wrap');
+  
+  // Get all unique hours from slots
+  const hours = Array.from(new Set(state.slots.map(s => s.start))).sort();
+  if (hours.length === 0) {
+    // Fallback to default hours
+    for (let h=7; h<=22; h++) hours.push(h+':00');
+  }
+
+  let html = `<div class="week-grid-container"><table class="week-grid"><thead><tr><th class="time-col">Tijd</th>`;
+  
+  // Day headers (7 days × 2 courts = 14 columns, or we can group by day)
+  for (let d=0; d<7; d++) {
+    const dt = new Date(state.dayDates[d]+'T12:00:00');
+    const dayName = DAYS[dt.getDay() === 0 ? 6 : dt.getDay()-1];
+    const dateNum = dt.getDate();
+    const monthNum = dt.getMonth()+1;
+    html += `<th colspan="2" class="day-header">${dayName} ${dateNum}/${monthNum}</th>`;
+  }
+  html += `</tr><tr><th class="time-col"></th>`;
+  for (let d=0; d<7; d++) {
+    html += `<th class="court-sub-header">Baan 1</th><th class="court-sub-header">Baan 2</th>`;
+  }
+  html += `</tr></thead><tbody>`;
+
+  for (const hour of hours) {
+    html += `<tr><td class="time-col">${hour}</td>`;
+    for (let d=0; d<7; d++) {
+      const dateStr = state.dayDates[d];
+      for (let c=0; c<2; c++) {
+        const court = c+1;
+        const key = id(dateStr, court, hour);
+        const slot = state.gridData[key];
+        let cls = 'closed', label = '—', sub = '';
+        if (slot) {
+          if (slot.booked >= slot.capacity) { cls='full'; label='vol'; }
+          else if (slot.booked === 0) { cls='free'; label='vrij'; }
+          else { cls='one'; label='1/2'; }
+          sub = `€${slot.price}`;
+        }
+        html += `<td class="court-col"><div class="court-cell ${cls}" data-key="${key}" data-date="${dateStr}" data-court="${court}" data-time="${hour}" onclick="cellClick(this)"><span>${label}</span>${sub ? '<span class="sub">'+sub+'</span>' : ''}</div></td>`;
+      }
+    }
+    html += `</tr>`;
+  }
+  html += `</tbody></table></div>`;
+  wrap.innerHTML = html;
 }
 
 function renderDay(idx) {
